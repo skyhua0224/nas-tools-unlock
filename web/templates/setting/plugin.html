@@ -12,6 +12,13 @@
       </div>
       <div class="col-auto ms-auto d-print-none">
         <div class="btn-list">
+          <a href="javascript:show_external_plugin_apps_modal()" class="btn d-none d-sm-inline-block">
+            {{ SVG.cloud_download() }}
+            第三方插件
+          </a>
+          <a href="javascript:show_external_plugin_apps_modal()" class="btn d-sm-none btn-icon">
+            {{ SVG.cloud_download() }}
+          </a>
           <a href="javascript:show_plugin_apps_modal()" class="btn btn-primary d-none d-sm-inline-block">
             {{ SVG.apps() }}
             插件市场
@@ -82,6 +89,48 @@
     </div>
   </div>
 </div>
+<div class="modal modal-blur fade" id="modal-external-plugin-apps" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">第三方插件</h5>
+        <button type="button" class="btn-action" aria-label="Settings" onclick="show_external_settings_page()">{{ SVG.settings() }}</button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-grid gap-3 grid-normal-card align-items-start" id="external_plugin_apps_content">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal modal-blur fade" id="modal-external-source-settings" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">第三方源管理</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div id="plugin_external_page_content">
+        <div class="modal-body" style="overflow-y: auto">
+            <div class="row mb-2">
+                <div class="col-12 col-lg" style="display:block">
+                  <div class="mb-1">
+                    <label class="form-label false">
+                    第三方源
+                    <span class="form-help" data-bs-toggle="tooltip" data-bs-original-title="配置正确的第三方源以后将会显示再第三方插件仓库中，安装以后会进入插件市场。">?</span></label>
+                    <textarea class="form-control" id="external_source_content" rows="10" placeholder="每行一个源地址，可以同时添加多个源 ... &#10;https://ip:prot/route/xxx.json &#10;https://ip:prot/route/xxx.json">{{ Settings }}</textarea>
+                  </div>
+                </div>
+            </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="modal_external_settings_btn">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal modal-blur fade" id="modal-plugin-page" tabindex="-1" role="dialog" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
     <div class="modal-content">
@@ -137,7 +186,7 @@
                     style="background-image: url('../static/img/plugins/${plugin.icon}')"
                 >
                 </span>
-                ${count ? `<span class="badge position-absolute" style="top: 10px; right: 10px;">${count.toLocaleString()}</span>` : ''}
+                ${count ? `<span class="badge bg-dark position-absolute" style="top: 10px; right: 10px;">${count.toLocaleString()}</span>` : ''}
               </div>
               <div class="card-body text-start">
                 <div class="card-title mb-1">${plugin.name}</div>
@@ -167,6 +216,79 @@
         $("#modal-plugin-apps").modal('show');
       }
     });
+  }
+
+  // 显示第三方插件市场页面
+  function show_external_plugin_apps_modal() {
+    ajax_post("get_external_plugin_apps", {}, function(ret){
+      if (ret.result) {
+        $("#external_plugin_apps_content").empty();
+        for (let pid in ret.result) {
+          let plugin = ret.result[pid];
+          let count = ret.statistic[pid];
+
+          let plugin_html = `
+            <div class="card card-link-pop card-borderless p-0 shadow-sm rounded-3 overflow-hidden" href="javascript:void(0)">
+              <div class="card-cover card-cover-blurred text-center ${plugin.color.startsWith('bg-') ? plugin.color:''}"
+                ${plugin.color.startsWith('#') ? `style="background-color: ${plugin.color}"` : ''}
+              >
+                <span class="avatar avatar-xl avatar-thumb avatar-rounded"
+                    style="background-image: url('../static/img/plugins/${plugin.icon.split('/').pop()}')"
+                >
+                </span>
+                ${count ? `<span class="badge bg-dark position-absolute" style="top: 10px; right: 10px;">${count.toLocaleString()}</span>` : ''}
+              </div>
+              <div class="card-body text-start">
+                <div class="card-title mb-1">${plugin.name}</div>
+                <div class="text-muted"><strong>描述：</strong>${plugin.desc}</div>
+                <div class="text-muted mt-1"><strong>作者：</strong>
+                ${plugin.author_url ? `<a href="${plugin.author_url}" target="_blank">${plugin.author}</a>`
+                  : `<span class="text-muted">${plugin.author}</span>`}
+                </div>
+              </div>
+              <div class="d-flex">
+                ${plugin.installed ? `
+                  <a href="javascript:uninstall_external_plugin('${pid}', '${plugin.name}')" class="card-btn text-danger">
+                    {{ SVG.trash('me-2') }}
+                     卸载
+                  </a>
+                  ` : `
+                  <a href="javascript:install_external_plugin('${pid}', '${plugin.name}', '${plugin.download_url}', '${plugin.file_md5}')" class="card-btn">
+                    {{ SVG.cloud_download('me-2') }}
+                     安装
+                  </a>
+                  `}
+                ${ plugin.update ? `
+                  <a href="javascript:update_external_plugin('${pid}', '${plugin.name}', '${plugin.download_url}', '${plugin.file_md5}')" class="card-btn">
+                    {{ SVG.cloud_download('me-2') }}
+                     更新
+                  </a>
+                  ` : ``}
+              </div>
+            </div>
+          `;
+          $("#external_plugin_apps_content").append(plugin_html);
+        }
+        $("#modal-external-plugin-apps").modal('show');
+      }
+    });
+  }
+
+  // 显示第三方插件设置页面
+  function show_external_settings_page() {
+      $("#modal-external-source-settings").modal('show');
+      $("#modal_external_settings_btn").click(function (){
+          var value = $("#external_source_content").val();
+          ajax_post("save_external_source_settings", {value: value}, function(ret){
+            if (ret.code === 0) {
+                show_success_modal(ret.msg, function (){
+                  $("#modal-external-source-settings").modal('hide');
+                });
+            } else {
+                show_fail_modal(ret.msg)
+            }
+          })
+      })
   }
 
   // 显示插件页面
@@ -220,6 +342,64 @@
         });
       }
     });
+  }
+
+  function install_external_plugin(id, name, download_url, file_md5) {
+      var params = {
+          id: id,
+          file_md5: file_md5,
+          download_url: download_url
+      }
+      ajax_post("install_external_plugin", params, function(ret){
+      $("#modal-external-plugin-apps").modal('hide');
+      if (ret.code === 0) {
+        show_success_modal(name + " 插件安装成功！", function (){
+          window_history_refresh();
+        });
+      } else {
+        show_fail_modal(ret.msg, function (){
+          $("#modal-external-plugin-apps").modal('show');
+        });
+      }
+    });
+  }
+
+  function uninstall_external_plugin(id, name) {
+      var params = {
+          id: id,
+      }
+      ajax_post("uninstall_external_plugin", params, function(ret){
+      $("#modal-external-plugin-apps").modal('hide');
+      if (ret.code === 0) {
+        show_warning_modal(name + " 插件已卸载！", function (){
+          window_history_refresh();
+        });
+      } else {
+        show_fail_modal(ret.msg, function (){
+          $("#modal-external-plugin-apps").modal('show');
+        });
+      }
+    });
+  }
+
+  function update_external_plugin(id, name, download_url, file_md5) {
+      var params = {
+          id: id,
+          file_md5: file_md5,
+          download_url: download_url
+      }
+      ajax_post("install_external_plugin", params, function(ret){
+          $("#modal-external-plugin-apps").modal('hide');
+          if (ret.code === 0) {
+            show_success_modal(name + " 插件更新成功！更新的插件需要重启生效!", function (){
+              window_history_refresh();
+            });
+          } else {
+            show_fail_modal(ret.msg, function (){
+              $("#modal-external-plugin-apps").modal('show');
+            });
+          }
+      })
   }
 
 </script>
