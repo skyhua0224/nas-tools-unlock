@@ -24,7 +24,7 @@ from app.downloader import Downloader
 from app.filetransfer import FileTransfer
 from app.filter import Filter
 from app.helper import DbHelper, ProgressHelper, ThreadHelper, \
-    MetaHelper, DisplayHelper, WordsHelper, IndexerHelper
+    MetaHelper, DisplayHelper, WordsHelper
 from app.helper import RssHelper, PluginHelper
 from app.indexer import Indexer
 from app.media import Category, Media, Bangumi, DouBan, Scraper
@@ -233,6 +233,10 @@ class WebAction:
             "get_category_config": self.get_category_config,
             "get_system_processes": self.get_system_processes,
             "run_plugin_method": self.run_plugin_method,
+            "get_external_plugin_apps": self.get_external_plugin_apps,
+            "save_external_source_settings": self.save_external_source_settings,
+            "install_external_plugin": self.install_external_plugin,
+            "uninstall_external_plugin": self.uninstall_external_plugin
         }
         # 远程命令响应
         self._commands = {
@@ -311,8 +315,6 @@ class WebAction:
 
     @staticmethod
     def start_service():
-        # 加载索引器配置
-        IndexerHelper()
         # 加载站点配置
         SiteConf()
         # 启动虚拟显示
@@ -1931,6 +1933,8 @@ class WebAction:
         brushtask_state = data.get("brushtask_state")
         brushtask_rssurl = data.get("brushtask_rssurl")
         brushtask_label = data.get("brushtask_label")
+        brushtask_up_limit = data.get("brushtask_up_limit")
+        brushtask_dl_limit = data.get("brushtask_dl_limit")
         brushtask_savepath = data.get("brushtask_savepath")
         brushtask_transfer = 'Y' if data.get("brushtask_transfer") else 'N'
         brushtask_sendmessage = 'Y' if data.get(
@@ -1983,6 +1987,8 @@ class WebAction:
             "downloader": brushtask_downloader,
             "seed_size": brushtask_totalsize,
             "label": brushtask_label,
+            "up_limit": brushtask_up_limit,
+            "dl_limit": brushtask_dl_limit,
             "savepath": brushtask_savepath,
             "transfer": brushtask_transfer,
             "state": brushtask_state,
@@ -2375,7 +2381,7 @@ class WebAction:
             # 参数
             params = data.get("params") or {}
             # 排序
-            sort = params.get("sort") or "T"
+            sort = params.get("sort") or "R"
             # 选中的分类
             tags = params.get("tags") or ""
             # 过滤参数
@@ -2776,7 +2782,7 @@ class WebAction:
 
     @staticmethod
     def list_site_resources(data):
-        resources = Indexer().list_resources(index_id=data.get("id"),
+        resources = Indexer().list_resources(url=data.get("site"),
                                              page=data.get("page"),
                                              keyword=data.get("keyword"))
         if not resources:
@@ -4249,7 +4255,7 @@ class WebAction:
         """
         获取索引器
         """
-        return {"code": 0, "indexers": Indexer().get_user_indexer_dict()}
+        return {"code": 0, "indexers": Indexer().get_indexer_dict()}
 
     @staticmethod
     def __get_download_dirs(data):
@@ -4412,7 +4418,7 @@ class WebAction:
         """
         key = data.get("key")
         value = data.get("value")
-        if not key or not value:
+        if not key:
             return {"code": 1}
         try:
             SystemConfig().set(key=key, value=value)
@@ -4757,20 +4763,9 @@ class WebAction:
             site = data.get("site")
             params = data.get("params")
         else:
-            UserSiteAuthParams = SystemConfig().get(SystemConfigKey.UserSiteAuthParams)
-            if UserSiteAuthParams:
-                site = UserSiteAuthParams.get("site")
-                params = UserSiteAuthParams.get("params")
-            else:
-                return {"code": 1, "msg": "参数错误"}
+            site, params = None, {}
         state, msg = User().check_user(site, params)
         if state:
-            # 保存认证数据
-            SystemConfig().set(key=SystemConfigKey.UserSiteAuthParams,
-                               value={
-                                   "site": site,
-                                   "params": params
-                               })
             return {"code": 0, "msg": "认证成功"}
         return {"code": 1, "msg": f"{msg or '认证失败，请检查合作站点账号是否正常！'}"}
 
@@ -5143,6 +5138,99 @@ class WebAction:
         data.pop("method")
         result = PluginManager().run_plugin_method(pid=plugin_id, method=method, **data)
         return {"code": 0, "result": result}
+
+    @staticmethod
+    def get_external_plugin_apps():
+        """
+        获取第三方插件列表
+        """
+        plugins = PluginManager().get_external_plugin_apps(current_user.level)
+        statistic = PluginHelper.statistic()
+        return {"code": 0, "result": plugins, "statistic": statistic}
+
+    @staticmethod
+    def save_external_source_settings(data):
+
+        content = data.get("value").split("\n")
+        SystemConfig().set(SystemConfigKey.ExternalPluginsSource, content)
+
+        return {"code": 0, "msg": "保存成功"}
+
+    @staticmethod
+    def install_external_plugin(data, reload=True):
+        """
+        安装第三方插件（先下载到本地后再进行本地安装）
+        """
+        module_id = data.get("id")
+        file_md5 = data.get("file_md5")
+        download_url = data.get("download_url")
+        if not module_id or not download_url:
+            return {"code": -1, "msg": "参数错误"}
+
+        # 用户已安装插件列表
+        user_plugins = SystemConfig().get(SystemConfigKey.UserInstalledPlugins) or []
+        external_plugins = SystemConfig().get(SystemConfigKey.ExternalInstalledPlugins) or []
+
+        # 获取插件安装路径
+        plugin_path = Path(importlib.import_module("app.plugins.modules").__path__[0]) / f"{module_id.lower()}.py"
+
+        # 获取插件内容
+        result = RequestUtils(timeout=5).get_res(download_url)
+
+        # 将插件存入本地插件库
+        if not result and not result.content:
+            return {"code": 1, "msg": "插件下载失败，请检查三方源是否可以正常访问！"}
+
+        open(plugin_path, "wb").write(result.content)
+
+        if file_md5:
+            log.info(file_md5)
+
+        if module_id not in user_plugins:
+            user_plugins.append(module_id)
+            PluginHelper.install(module_id)
+
+        if module_id not in external_plugins:
+            external_plugins.append(module_id)
+
+        # 保存配置
+        SystemConfig().set(SystemConfigKey.UserInstalledPlugins, user_plugins)
+        SystemConfig().set(SystemConfigKey.ExternalInstalledPlugins, external_plugins)
+        # 重新加载插件
+        if reload:
+            PluginManager().init_config()
+        return {"code": 0, "msg": "插件安装成功"}
+
+    @staticmethod
+    def uninstall_external_plugin(data):
+        """
+        卸载第三方插件（从库中卸载完成后还需要删除插件）
+        """
+        module_id = data.get("id")
+        if not module_id:
+            return {"code": -1, "msg": "参数错误"}
+
+        # 获取插件安装路径
+        plugin_path = Path(importlib.import_module("app.plugins.modules").__path__[0]) / f"{module_id.lower()}.py"
+
+        # 用户已安装插件列表
+        user_plugins = SystemConfig().get(SystemConfigKey.UserInstalledPlugins) or []
+        external_plugins = SystemConfig().get(SystemConfigKey.ExternalInstalledPlugins) or []
+        if module_id in user_plugins:
+            user_plugins.remove(module_id)
+
+        if module_id in external_plugins:
+            external_plugins.remove(module_id)
+            # 删除本地的第三方插件文件
+            os.remove(plugin_path)
+
+        # 保存配置
+        SystemConfig().set(SystemConfigKey.UserInstalledPlugins, user_plugins)
+        SystemConfig().set(SystemConfigKey.ExternalInstalledPlugins, external_plugins)
+
+        # 重新加载插件
+        PluginManager().init_config()
+        return {"code": 0, "msg": "插件卸载功"}
 
     def get_commands(self):
         """
