@@ -1,9 +1,8 @@
-import os.path
-import pickle
+import json
 
 from app.utils import StringUtils, ExceptionUtils
 from app.utils.commons import singleton
-from config import Config
+from app.helper import DbHelper
 
 
 @singleton
@@ -15,23 +14,14 @@ class IndexerHelper:
 
     def init_config(self):
         try:
-            with open(os.path.join(Config().get_inner_config_path(),
-                                   "sites.dat"),
-                      "rb") as f:
-                self._indexers = pickle.load(f).get("indexer")
+            for inexer in DbHelper().get_indexer_custom_site():
+                self._indexers.append(json.loads(inexer.INDEXER))
         except Exception as err:
             ExceptionUtils.exception_traceback(err)
 
     def get_all_indexers(self):
+        self.init_config()
         return self._indexers
-
-    def get_indexer_info(self, url, public=False):
-        for indexer in self._indexers:
-            if not public and indexer.get("public"):
-                continue
-            if StringUtils.url_equal(indexer.get("domain"), url):
-                return indexer
-        return None
 
     def get_indexer(self,
                     url,
@@ -46,14 +36,15 @@ class IndexerHelper:
                     render=None,
                     language=None,
                     pri=None):
+        self.init_config()
         if not url:
             return None
         for indexer in self._indexers:
             if not indexer.get("domain"):
                 continue
             if StringUtils.url_equal(indexer.get("domain"), url):
-                return IndexerConf(datas=indexer,
-                                   siteid=siteid,
+                return IndexerConf(siteid=siteid,
+                                   datas=indexer,
                                    cookie=cookie,
                                    name=name,
                                    rule=rule,
@@ -86,12 +77,14 @@ class IndexerConf(object):
                  pri=None):
         if not datas:
             return
-        # 索引ID
+        # ID
         self.id = datas.get('id')
+        # 站点ID
+        self.siteid = siteid
         # 名称
-        self.name = name if name else datas.get('name')
+        self.name = datas.get('name') if not name else name
         # 是否内置站点
-        self.builtin = builtin
+        self.builtin = datas.get('builtin')
         # 域名
         self.domain = datas.get('domain')
         # 搜索
@@ -101,15 +94,13 @@ class IndexerConf(object):
         # 解析器
         self.parser = parser if parser is not None else datas.get('parser')
         # 是否启用渲染
-        self.render = render and datas.get("render")
+        self.render = render if render is not None else datas.get("render")
         # 浏览
         self.browse = datas.get('browse', {})
         # 种子过滤
         self.torrents = datas.get('torrents', {})
         # 分类
         self.category = datas.get('category', {})
-        # 站点ID
-        self.siteid = siteid
         # Cookie
         self.cookie = cookie
         # User-Agent
@@ -117,10 +108,10 @@ class IndexerConf(object):
         # 过滤规则
         self.rule = rule
         # 是否公开站点
-        self.public = public if public is not None else datas.get('public')
+        self.public = datas.get('public') if not public else public
         # 是否使用代理
-        self.proxy = proxy if proxy is not None else datas.get('proxy')
+        self.proxy = datas.get('proxy') if not proxy else proxy
         # 仅支持的特定语种
-        self.language = language if language else datas.get('language')
+        self.language = language
         # 索引器优先级
         self.pri = pri if pri else 0
