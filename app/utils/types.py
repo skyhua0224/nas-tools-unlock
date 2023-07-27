@@ -169,6 +169,10 @@ class SystemConfigKey(Enum):
     UserScraperConf = "UserScraperConf"
     # 索引站点
     UserIndexerSites = "UserIndexerSites"
+    # 第三方插件源配置
+    ExternalPluginsSource = "ExternalPluginsSource"
+    # 已安装的第三方插件
+    ExternalInstalledPlugins = "ExternalInstalledPlugins"
 
 # 处理进度Key字典
 class ProgressKey(Enum):
